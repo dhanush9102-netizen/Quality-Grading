@@ -1,0 +1,38 @@
+{
+  "bundle_format": 1,
+  "schema_version": 1,
+  "feature_order": [
+    "true_area_cm2",
+    "equivalent_diameter_mm",
+    "volume_cm3",
+    "reference_scale_mm_per_px",
+    "calibration_confidence",
+    "family_red_smooth",
+    "family_yellow_green",
+    "family_brown_textured",
+    "spectral_primary",
+    "spectral_secondary",
+    "defect_index",
+    "mean_l",
+    "mean_a",
+    "mean_b",
+    "lab_l_std",
+    "glcm_homogeneity",
+    "glcm_contrast",
+    "lbp_entropy",
+    "spot_ratio"
+  ],
+  "grade_order": [
+    "Grade A",
+    "Grade B",
+    "Grade C",
+    "Reject"
+  ],
+  "n_features": 19,
+  "n_estimators": 100,
+  "n_samples": 240,
+  "oob_score": 0.7291666666666666,
+  "created_at": "2026-09-29T05:31:37+00:00",
+  "created_by": "fedora python3.14",
+  "checksum": "d688eee1e7bf9430cee76275d28d977565bc5768dd4c12a8b72c8921f42e35be"
+}

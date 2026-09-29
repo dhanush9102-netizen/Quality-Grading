@@ -227,7 +227,7 @@ def save(bundle: ArtifactBundle, path: str | Path | None = None) -> Path:
     then renamed, so a crash mid-write leaves the previous artifact intact rather
     than a truncated one that still looks loadable.
     """
-    target = Path(path) if path is not None else default_path()
+    target = default_path() if path is None else Path(path) if path is not None else default_path()
     target.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.NamedTemporaryFile(dir=target.parent, suffix=".partial", delete=False) as handle:
@@ -244,11 +244,11 @@ def save(bundle: ArtifactBundle, path: str | Path | None = None) -> Path:
     return target
 
 
-def load(path: str | Path, *, verify: bool = True) -> ArtifactBundle:
+def load(path: str | Path | None = None, *, verify: bool = True) -> ArtifactBundle:
     """Read a bundle and check it against the current process.
 
     Args:
-        path: Artifact path.
+        path: Artifact path. Defaults to the current name in ``artifacts/``.
         verify: Run the schema and grade-order check. Leave enabled in
             production; disabling it is only useful for inspecting an old bundle
             that no longer matches.
@@ -259,7 +259,7 @@ def load(path: str | Path, *, verify: bool = True) -> ArtifactBundle:
     Raises:
         SchemaMismatchError: If verification fails.
     """
-    target = Path(path)
+    target = default_path() if path is None else Path(path)
     try:
         bundle = joblib.load(target)
     except Exception as exc:
@@ -275,7 +275,7 @@ def load(path: str | Path, *, verify: bool = True) -> ArtifactBundle:
 
 def load_grader(path: str | Path | None = None, *, verify: bool = True) -> QualityGrader:
     """Convenience wrapper returning just the estimator."""
-    return load(default_path() if path is None else path, verify=verify).grader
+    return load(path, verify=verify).grader
 
 
 def describe_quality(grade: str) -> str:
