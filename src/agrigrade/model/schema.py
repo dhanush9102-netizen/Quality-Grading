@@ -52,18 +52,36 @@ class FeatureSpec:
         return f"{self.name} [{self.unit}]" if self.unit else self.name
 
 
-#: Declared in vector order. Append only.
+#: Declared in vector order. Append only once an artifact has been trained
+#: against it; a reorder invalidates every serialized model.
 FEATURE_SPECS: tuple[FeatureSpec, ...] = (
     # --- Geometric, README section 3C -------------------------------------
     FeatureSpec("true_area_cm2", "cm^2", "Foreground area after reference-marker scaling."),
     FeatureSpec("equivalent_diameter_mm", "mm", "Circle of equal area to the foreground mask."),
-    FeatureSpec("volume_cm3", "cm^3", "Spheroidal volume estimate from the equivalent diameter."),
-    FeatureSpec("reference_scale_mm_per_px", "mm/px", "Scale ratio recovered from the on-screen marker."),
+    FeatureSpec(
+        "volume_cm3",
+        "cm^3",
+        "Spheroidal volume estimate from the equivalent diameter.",
+    ),
+    FeatureSpec(
+        "reference_scale_mm_per_px",
+        "mm/px",
+        "Scale ratio recovered from the on-screen marker.",
+    ),
     FeatureSpec(
         "calibration_confidence",
         "",
         "Detector confidence that the reference marker was found and measured.",
     ),
+    # --- Class conditioning ---------------------------------------------
+    # `spectral_primary` carries opposite polarity between families: NDTI rises
+    # with ripeness on red produce, ExB rises with mould on brown produce. A
+    # pooled ensemble given only the value cannot learn both, so the family is
+    # supplied as an explicit one-hot. Without these slots the forest scores
+    # near chance while looking correctly trained.
+    FeatureSpec("family_red_smooth", "", "One-hot: the sample is a red/smooth class."),
+    FeatureSpec("family_yellow_green", "", "One-hot: the sample is a yellow/green class."),
+    FeatureSpec("family_brown_textured", "", "One-hot: the sample is a brown/textured class."),
     # --- Polymorphic spectral slot, README section 3A / 3B ---------------
     FeatureSpec(
         "spectral_primary",
@@ -117,7 +135,11 @@ FEATURE_SPECS: tuple[FeatureSpec, ...] = (
 class FeatureSchema:
     """Ordered, immutable description of the model's input vector."""
 
-    def __init__(self, specs: Sequence[FeatureSpec] = FEATURE_SPECS, version: int = SCHEMA_VERSION) -> None:
+    def __init__(
+        self,
+        specs: Sequence[FeatureSpec] = FEATURE_SPECS,
+        version: int = SCHEMA_VERSION,
+    ) -> None:
         if not specs:
             raise ValueError("feature schema must not be empty")
         names = [spec.name for spec in specs]
@@ -125,7 +147,9 @@ class FeatureSchema:
         if duplicates:
             raise ValueError(f"duplicate feature names in schema: {sorted(duplicates)}")
         self._specs: tuple[FeatureSpec, ...] = tuple(specs)
-        self._index: dict[str, int] = {spec.name: position for position, spec in enumerate(self._specs)}
+        self._index: dict[str, int] = {
+            spec.name: position for position, spec in enumerate(self._specs)
+        }
         self.version = version
 
     @property
@@ -149,7 +173,9 @@ class FeatureSchema:
         try:
             return self._specs[self._index[name]]
         except KeyError:
-            raise KeyError(f"unknown feature {name!r}; expected one of {list(self.names)}") from None
+            raise KeyError(
+                f"unknown feature {name!r}; expected one of {list(self.names)}"
+            ) from None
 
     def index(self, name: str) -> int:
         return self._index[name]
@@ -204,9 +230,7 @@ class FeatureSchema:
     def from_vector(self, vector: Sequence[float]) -> dict[str, float]:
         """Rebuild a mapping from a positional vector, checking the length."""
         if len(vector) != len(self._specs):
-            raise SchemaMismatchError(
-                f"expected {len(self._specs)} features, got {len(vector)}"
-            )
+            raise SchemaMismatchError(f"expected {len(self._specs)} features, got {len(vector)}")
         try:
             values = [float(value) for value in vector]
         except (TypeError, ValueError) as exc:
@@ -240,7 +264,7 @@ def load_schema() -> FeatureSchema:
     deleted and this function returns the core schema unchanged.
     """
     try:
-        from agrigrade.core import feature_schema as core_schema
+        from agrigrade.core import feature_schema as core_schema  # type: ignore[attr-defined]
     except ImportError:
         return DEFAULT_SCHEMA
     return FeatureSchema(core_schema.FEATURE_SPECS, version=core_schema.SCHEMA_VERSION)

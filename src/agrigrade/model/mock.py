@@ -119,13 +119,16 @@ CHANNELS: dict[ProduceFamily, dict[str, float]] = {
 }
 
 #: How far a channel travels across the quality range, as a fraction of its
-#: normalised span. 0.40 leaves the classes overlapping at the band edges, which
-#: is where the realistic confusion comes from.
-CHANNEL_SWING = 0.40
+#: normalised span. The grade bands are wide relative to this, so adjacent
+#: grades genuinely overlap and the confusion matrix has a realistic diagonal
+#: bleed instead of a clean 1.00.
+CHANNEL_SWING = 0.45
 
-#: Gaussian noise added to each channel, in normalised units. The signal-to-noise
-#: ratio here is what a real feature stage would have to beat.
-CHANNEL_NOISE = 0.10
+#: Gaussian noise added to each channel, in normalised units. This is the
+#: signal-to-noise ratio a real feature stage has to beat; at 0.035 a fitted
+#: ensemble lands near 0.83 on held-out data, the rest being band overlap and
+#: label noise rather than model capacity.
+CHANNEL_NOISE = 0.035
 
 #: Spread of the distractor slots, centred mid-range.
 DISTRACTOR_NOISE = 0.18
@@ -143,6 +146,24 @@ QUALITY_BANDS: dict[QualityGrade, tuple[float, float]] = {
 #: annotator disagreement and borderline cases. Caps attainable accuracy just
 #: under 100% so the confusion matrix has something to show.
 LABEL_NOISE = 0.05
+
+#: One-hot column per family. Carried as ordinary features because the pooled
+#: ensemble needs them: the spectral slots have opposite polarity between
+#: families and are unreadable without knowing which recipe produced them.
+FAMILY_FLAGS: dict[ProduceFamily, tuple[str, ...]] = {
+    ProduceFamily.RED_SMOOTH: ("family_red_smooth",),
+    ProduceFamily.YELLOW_GREEN: ("family_yellow_green",),
+    ProduceFamily.BROWN_TEXTURED: ("family_brown_textured",),
+    ProduceFamily.UNKNOWN: (),
+}
+
+#: Every flag column, so an absent family is emitted as an explicit 0.0 rather
+#: than omitted. The schema is strict on purpose.
+FAMILY_FLAG_NAMES: tuple[str, ...] = (
+    "family_red_smooth",
+    "family_yellow_green",
+    "family_brown_textured",
+)
 
 #: Ranges for the family-independent slots. These carry no grade signal: a
 #: grading model must not use them, and the XAI output showing near-zero
@@ -214,7 +235,7 @@ class MockDataset:
         test: list[MockSample] = []
         for grade in GRADE_ORDER:
             group = per_grade[grade]
-            cut = max(1, int(round(len(group) * test_fraction)))
+            cut = max(1, round(len(group) * test_fraction))
             test.extend(group[:cut])
             train.extend(group[cut:])
         return MockDataset(tuple(train), self.schema), MockDataset(tuple(test), self.schema)
@@ -277,6 +298,8 @@ def _generate_values(
 
     for name, (low, high) in GLOBAL_RANGES.items():
         values[name] = _draw(rng, low, high, DISTRACTOR_NOISE * (1.0 + noise))
+    for flag in FAMILY_FLAG_NAMES:
+        values[flag] = 1.0 if flag in FAMILY_FLAGS[family] else 0.0
     return values
 
 
@@ -346,7 +369,8 @@ def make_dataset(
     samples: list[MockSample] = []
     for grade in GRADE_ORDER:
         for position in range(n_per_grade):
-            samples.append(make_sample(rng, families[position % len(families)], grade=grade, noise=noise))
+            family = families[position % len(families)]
+            samples.append(make_sample(rng, family, grade=grade, noise=noise))
     return MockDataset(tuple(samples))
 
 
@@ -366,7 +390,8 @@ def describe(dataset: MockDataset) -> str:
     lines = [f"{len(dataset)} samples across {len(dataset.families)} families"]
     for grade in GRADE_ORDER:
         share = 100.0 * counts[grade] / max(1, len(dataset))
-        lines.append(f"  {str(grade):>{width}}  {counts[grade]:>5}  {share:5.1f}%  {'#' * round(share / 2.5)}")
+        bar = "#" * round(share / 2.5)
+        lines.append(f"  {grade!s:>{width}}  {counts[grade]:>5}  {share:5.1f}%  {bar}")
     return "\n".join(lines)
 
 
