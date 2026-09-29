@@ -16,8 +16,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from agrigrade.core.enums import ProduceFamily
+from agrigrade.core.errors import SchemaMismatchError
 
 #: Bumped when slots are added. Artifacts record the version they were trained
 #: against and refuse to load against a newer schema.
@@ -158,6 +160,95 @@ class FeatureSchema:
     def label(self, name: str, family: ProduceFamily) -> str:
         return self.spec(name).label(family)
 
+    # --- validation and coercion ----------------------------------------
+
+    def validate(self, values: Mapping[str, Any]) -> Mapping[str, float]:
+        """Return ``values`` as a validated float mapping.
+
+        Rejects a mapping that is missing a slot, carries an unknown slot, or
+        holds a non-finite or non-numeric value. Padding and truncating are both
+        silent scoring bugs, so neither is offered.
+
+        Raises:
+            SchemaMismatchError: on any deviation from the declared schema.
+        """
+        missing = [name for name in self.names if name not in values]
+        if missing:
+            raise SchemaMismatchError(f"missing {len(missing)} feature(s): {missing}")
+        unknown = sorted(set(values) - set(self.names))
+        if unknown:
+            raise SchemaMismatchError(f"unknown feature(s) present: {unknown}")
+
+        coerced: dict[str, float] = {}
+        for spec in self._specs:
+            raw = values[spec.name]
+            try:
+                number = float(raw)
+            except (TypeError, ValueError):
+                raise SchemaMismatchError(
+                    f"feature {spec.name!r} is not numeric: {raw!r}"
+                ) from None
+            if number != number or number in (float("inf"), float("-inf")):
+                raise SchemaMismatchError(f"feature {spec.name!r} is not finite: {raw!r}")
+            coerced[spec.name] = number
+        return coerced
+
+    def to_vector(self, values: Mapping[str, Any]) -> list[float]:
+        """Validate ``values`` and project them into vector order."""
+        validated = self.validate(values)
+        return [validated[name] for name in self.names]
+
+    def to_matrix(self, rows: Sequence[Mapping[str, Any]]) -> list[list[float]]:
+        return [self.to_vector(row) for row in rows]
+
+    def from_vector(self, vector: Sequence[float]) -> dict[str, float]:
+        """Rebuild a mapping from a positional vector, checking the length."""
+        if len(vector) != len(self._specs):
+            raise SchemaMismatchError(
+                f"expected {len(self._specs)} features, got {len(vector)}"
+            )
+        try:
+            values = [float(value) for value in vector]
+        except (TypeError, ValueError) as exc:
+            raise SchemaMismatchError(f"vector is not numeric: {exc}") from exc
+        return dict(zip(self.names, values, strict=True))
+
+    def to_frame(self) -> list[dict[str, str]]:
+        """Tabular description, used by the API's ``/schema`` route."""
+        return [
+            {
+                "index": str(position),
+                "name": spec.name,
+                "unit": spec.unit,
+                "description": spec.description,
+                "polymorphic": str(spec.polymorphic).lower(),
+            }
+            for position, spec in enumerate(self._specs)
+        ]
+
 
 #: The schema used when ``agrigrade.core.feature_schema`` is not available yet.
 DEFAULT_SCHEMA = FeatureSchema()
+
+
+def load_schema() -> FeatureSchema:
+    """Return the canonical schema, preferring ``agrigrade.core``.
+
+    The shared contract on ``main`` is the source of truth. Until
+    ``agrigrade.core.feature_schema`` merges, fall back to the local declaration
+    so the branch is runnable in isolation. When it lands, the fallback is
+    deleted and this function returns the core schema unchanged.
+    """
+    try:
+        from agrigrade.core import feature_schema as core_schema
+    except ImportError:
+        return DEFAULT_SCHEMA
+    return FeatureSchema(core_schema.FEATURE_SPECS, version=core_schema.SCHEMA_VERSION)
+
+
+if __name__ == "__main__":  # pragma: no cover - manual inspection helper
+    import json
+
+    loaded = load_schema()
+    print(f"schema v{loaded.version}, {len(loaded)} features")
+    print(json.dumps(loaded.to_frame(), indent=2))
