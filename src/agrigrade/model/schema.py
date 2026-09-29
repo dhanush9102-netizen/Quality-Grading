@@ -14,7 +14,7 @@ records per family so explanations read correctly.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -166,7 +166,7 @@ class FeatureSchema:
     def __contains__(self, name: object) -> bool:
         return name in self._index
 
-    def __iter__(self) -> Iterable[FeatureSpec]:
+    def __iter__(self) -> Iterator[FeatureSpec]:
         return iter(self._specs)
 
     def spec(self, name: str) -> FeatureSpec:

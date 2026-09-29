@@ -151,13 +151,14 @@ class QualityGrader:
 
     def predict_proba(
         self,
-        X: np.ndarray | Sequence[Mapping[str, Any]] | Sequence[Sequence[float]],  # noqa: N803
+        X: np.ndarray | Mapping[str, Any] | Sequence[Mapping[str, Any]] | Sequence[Sequence[float]],  # noqa: N803
     ) -> np.ndarray:
         """Class probabilities with columns in ``GRADE_ORDER``.
 
-        Accepts a raw matrix, a sequence of feature mappings, or a sequence of
-        positional vectors. Mappings are validated against the schema, so a
-        mapping is the safe input: it fails loudly instead of misaligning.
+        Accepts a raw matrix, a single feature mapping, a sequence of mappings,
+        or a sequence of positional vectors. Mappings are validated against the
+        schema, so a mapping is the safe input: it fails loudly instead of
+        misaligning.
         """
         matrix = self._as_matrix(X)
         raw = self._estimator.predict_proba(matrix)
@@ -165,7 +166,7 @@ class QualityGrader:
 
     def predict(
         self,
-        X: np.ndarray | Sequence[Mapping[str, Any]] | Sequence[Sequence[float]],  # noqa: N803
+        X: np.ndarray | Mapping[str, Any] | Sequence[Mapping[str, Any]] | Sequence[Sequence[float]],  # noqa: N803
     ) -> tuple[list[QualityGrade], np.ndarray]:
         """Return the argmax grade per row and the full probability matrix."""
         probabilities = self.predict_proba(X)
@@ -174,7 +175,7 @@ class QualityGrader:
 
     def tree_votes(
         self,
-        X: np.ndarray | Sequence[Mapping[str, Any]] | Sequence[Sequence[float]],  # noqa: N803
+        X: np.ndarray | Mapping[str, Any] | Sequence[Mapping[str, Any]] | Sequence[Sequence[float]],  # noqa: N803
     ) -> np.ndarray:
         """Per-tree hard class indices, shape ``(n_trees, n_samples)``.
 
@@ -255,11 +256,15 @@ class QualityGrader:
 
     def _as_matrix(
         self,
-        X: np.ndarray | Sequence[Mapping[str, Any]] | Sequence[Sequence[float]],  # noqa: N803
+        X: np.ndarray | Mapping[str, Any] | Sequence[Mapping[str, Any]] | Sequence[Sequence[float]],  # noqa: N803
     ) -> np.ndarray:
         self._require_fitted()
         if isinstance(X, np.ndarray):
             return self._check_matrix(X)
+        # A bare mapping is a single frame, which is the common case on the edge
+        # client and in the API, so accept it rather than forcing a list wrapper.
+        if isinstance(X, Mapping):
+            return np.asarray([self.schema.to_vector(X)], dtype=np.float64)
         rows = list(X)
         if not rows:
             return np.empty((0, len(self.schema)), dtype=np.float64)
