@@ -200,6 +200,16 @@ class QualityGrader:
         return self._fitted
 
     @property
+    def estimator(self) -> RandomForestClassifier:
+        """The underlying scikit-learn estimator.
+
+        Exposed for serialisation, checksum computation and ONNX export,
+        which all need the fitted object rather than this wrapper.
+        """
+        self._require_fitted()
+        return self._estimator
+
+    @property
     def classes_(self) -> tuple[QualityGrade, ...]:
         """Grades the ensemble actually saw, ascending along the ladder."""
         self._require_fitted()
