@@ -1,0 +1,1592 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgriGrade AI — the idea, explained</title>
+    <meta
+      name="description"
+      content="Why produce quality grading breaks under bad lighting and unfamiliar fruit, and how class-conditioned spectral ratios plus a Random Forest fix it."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f4f4f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#18181b" media="(prefers-color-scheme: dark)" />
+
+    <style>
+      /* ------------------------------------------------------------------
+         Tokens. Same neutral Graphite palette as the web client, so the
+         explainer and the product read as one thing.
+         ------------------------------------------------------------------ */
+      :root {
+        --radius: 0.35rem;
+
+        --bg: oklch(0.9551 0 0);
+        --fg: oklch(0.3211 0 0);
+        --card: oklch(0.9702 0 0);
+        --primary: oklch(0.4891 0 0);
+        --on-primary: oklch(1 0 0);
+        --secondary: oklch(0.9067 0 0);
+        --muted: oklch(0.8853 0 0);
+        --muted-fg: oklch(0.5103 0 0);
+        --accent: oklch(0.8078 0 0);
+        --border: oklch(0.8576 0 0);
+        --danger: oklch(0.5594 0.19 25.8625);
+        --teal: oklch(0.4863 0.0361 196.0278);
+
+        --shadow: 0 2px 0 0 oklch(0 0 0 / 0.06), 0 1px 2px -1px oklch(0 0 0 / 0.1);
+        --shadow-lg:
+          0 2px 0 0 oklch(0 0 0 / 0.08), 0 4px 6px -1px oklch(0 0 0 / 0.1);
+
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas,
+          "Liberation Mono", monospace;
+
+        --measure: 68ch;
+        --shell: 60rem;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: oklch(0.2178 0 0);
+          --fg: oklch(0.8853 0 0);
+          --card: oklch(0.2435 0 0);
+          --primary: oklch(0.7058 0 0);
+          --on-primary: oklch(0.2178 0 0);
+          --secondary: oklch(0.3092 0 0);
+          --muted: oklch(0.285 0 0);
+          --muted-fg: oklch(0.5999 0 0);
+          --accent: oklch(0.3715 0 0);
+          --border: oklch(0.329 0 0);
+          --danger: oklch(0.6591 0.153 22.1703);
+          --teal: oklch(0.6714 0.0339 206.3482);
+          --shadow: 0 2px 0 0 oklch(0 0 0 / 0.25), 0 1px 2px -1px oklch(0 0 0 / 0.3);
+          --shadow-lg:
+            0 2px 0 0 oklch(0 0 0 / 0.3), 0 4px 6px -1px oklch(0 0 0 / 0.3);
+        }
+      }
+
+      /* ------------------------------------------------------------------
+         Base
+         ------------------------------------------------------------------ */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--sans);
+        font-size: 1rem;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      h1,
+      h2,
+      h3,
+      h4 {
+        line-height: 1.2;
+        margin: 0;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        text-wrap: balance;
+      }
+
+      p {
+        margin: 0;
+        text-wrap: pretty;
+      }
+
+      a {
+        color: inherit;
+        text-decoration-color: color-mix(in oklch, currentColor 35%, transparent);
+        text-underline-offset: 0.2em;
+      }
+
+      a:hover {
+        text-decoration-color: currentColor;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--teal);
+        outline-offset: 2px;
+        border-radius: 2px;
+      }
+
+      code,
+      kbd,
+      samp {
+        font-family: var(--mono);
+        font-size: 0.9em;
+      }
+
+      :not(pre) > code {
+        background: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 0.1em 0.35em;
+      }
+
+      .skip {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        z-index: 100;
+        background: var(--primary);
+        color: var(--on-primary);
+        padding: 0.6rem 1rem;
+        border-radius: 0 0 var(--radius) 0;
+      }
+
+      .skip:focus {
+        left: 0;
+      }
+
+      .shell {
+        max-width: var(--shell);
+        margin-inline: auto;
+        padding-inline: 1.5rem;
+      }
+
+      .prose {
+        max-width: var(--measure);
+      }
+
+      /* ------------------------------------------------------------------
+         Masthead
+         ------------------------------------------------------------------ */
+      .masthead {
+        border-bottom: 1px solid var(--border);
+        background: var(--bg);
+        position: sticky;
+        top: 0;
+        z-index: 20;
+      }
+
+      .masthead__inner {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        min-height: 3.25rem;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .brand__mark {
+        display: grid;
+        place-items: center;
+        width: 1.6rem;
+        height: 1.6rem;
+        border-radius: var(--radius);
+        background: var(--primary);
+        color: var(--on-primary);
+        flex: none;
+      }
+
+      .brand__mark svg {
+        width: 1rem;
+        height: 1rem;
+      }
+
+      .masthead nav {
+        margin-left: auto;
+        display: flex;
+        gap: 1.25rem;
+        font-size: 0.875rem;
+        color: var(--muted-fg);
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .masthead nav::-webkit-scrollbar {
+        display: none;
+      }
+
+      .masthead nav a {
+        text-decoration: none;
+        white-space: nowrap;
+        padding-block: 0.25rem;
+      }
+
+      .masthead nav a:hover {
+        color: var(--fg);
+      }
+
+      @media (max-width: 40rem) {
+        .masthead nav {
+          gap: 1rem;
+          font-size: 0.8125rem;
+        }
+      }
+
+      /* ------------------------------------------------------------------
+         Hero
+         ------------------------------------------------------------------ */
+      .hero {
+        padding-block: clamp(3rem, 8vw, 5.5rem) clamp(2.5rem, 6vw, 4rem);
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted-fg);
+        border: 1px solid var(--border);
+        background: var(--card);
+        border-radius: 999px;
+        padding: 0.3rem 0.7rem;
+        margin-bottom: 1.5rem;
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 999px;
+        background: var(--teal);
+        flex: none;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 5.5vw, 3.1rem);
+        max-width: 18ch;
+      }
+
+      .lede {
+        margin-top: 1.25rem;
+        font-size: clamp(1.0625rem, 2.2vw, 1.2rem);
+        line-height: 1.6;
+        color: var(--muted-fg);
+        max-width: 58ch;
+      }
+
+      .hero__meta {
+        margin-top: 2rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        font-family: var(--mono);
+        font-size: 0.75rem;
+      }
+
+      .chip {
+        border: 1px solid var(--border);
+        background: var(--card);
+        border-radius: 999px;
+        padding: 0.3rem 0.65rem;
+        color: var(--muted-fg);
+      }
+
+      /* ------------------------------------------------------------------
+         Sections
+         ------------------------------------------------------------------ */
+      section {
+        padding-block: clamp(2.5rem, 6vw, 4rem);
+        border-top: 1px solid var(--border);
+      }
+
+      .section__head {
+        margin-bottom: 1.75rem;
+      }
+
+      .step {
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        color: var(--muted-fg);
+        display: block;
+        margin-bottom: 0.5rem;
+        letter-spacing: 0.04em;
+      }
+
+      h2 {
+        font-size: clamp(1.4rem, 3.4vw, 1.85rem);
+      }
+
+      .section__sub {
+        margin-top: 0.75rem;
+        color: var(--muted-fg);
+        max-width: var(--measure);
+      }
+
+      /* ------------------------------------------------------------------
+         Cards
+         ------------------------------------------------------------------ */
+      .grid {
+        display: grid;
+        gap: 1rem;
+      }
+
+      @media (min-width: 46rem) {
+        .grid--3 {
+          grid-template-columns: repeat(3, 1fr);
+        }
+        .grid--2 {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.25rem;
+        box-shadow: var(--shadow);
+      }
+
+      .card h3 {
+        font-size: 1rem;
+        margin-bottom: 0.5rem;
+      }
+
+      .card p {
+        font-size: 0.9375rem;
+        color: var(--muted-fg);
+      }
+
+      .card__icon {
+        width: 1.5rem;
+        height: 1.5rem;
+        color: var(--muted-fg);
+        margin-bottom: 0.75rem;
+        display: block;
+      }
+
+      .card--fail h3 {
+        color: var(--fg);
+      }
+
+      .card--fail .card__icon {
+        color: var(--danger);
+      }
+
+      .card--fix .card__icon {
+        color: var(--teal);
+      }
+
+      /* ------------------------------------------------------------------
+         Pipeline
+         ------------------------------------------------------------------ */
+      .pipeline {
+        display: grid;
+        gap: 0.75rem;
+        counter-reset: stage;
+      }
+
+      @media (min-width: 52rem) {
+        .pipeline {
+          grid-template-columns: repeat(4, 1fr);
+        }
+      }
+
+      .stage {
+        position: relative;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.1rem;
+        box-shadow: var(--shadow);
+      }
+
+      .stage__n {
+        display: inline-grid;
+        place-items: center;
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: var(--radius);
+        background: var(--primary);
+        color: var(--on-primary);
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .stage h3 {
+        font-size: 0.9375rem;
+        margin-bottom: 0.35rem;
+      }
+
+      .stage p {
+        font-size: 0.875rem;
+        color: var(--muted-fg);
+      }
+
+      .stage em {
+        display: block;
+        margin-top: 0.6rem;
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        font-style: normal;
+        color: var(--muted-fg);
+        border-top: 1px dashed var(--border);
+        padding-top: 0.5rem;
+      }
+
+      /* ------------------------------------------------------------------
+         Routing table
+         ------------------------------------------------------------------ */
+      .router {
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      @media (min-width: 52rem) {
+        .router {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+
+      .route {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+        overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+
+      .route__head {
+        padding: 0.85rem 1rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--secondary);
+      }
+
+      .route__head strong {
+        display: block;
+        font-size: 0.9375rem;
+      }
+
+      .route__head span {
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        color: var(--muted-fg);
+      }
+
+      .route dl {
+        margin: 0;
+        padding: 0.9rem 1rem;
+        display: grid;
+        gap: 0.55rem;
+        font-size: 0.8125rem;
+      }
+
+      .route dt {
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted-fg);
+      }
+
+      .route dd {
+        margin: 0.1rem 0 0;
+        font-family: var(--mono);
+        font-size: 0.8125rem;
+      }
+
+      .route__produce {
+        border-top: 1px solid var(--border);
+        padding: 0.7rem 1rem;
+        font-size: 0.75rem;
+        color: var(--muted-fg);
+      }
+
+      /* ------------------------------------------------------------------
+         Demo
+         ------------------------------------------------------------------ */
+      .demo {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-lg);
+        overflow: hidden;
+      }
+
+      .demo__body {
+        display: grid;
+        gap: 1.5rem;
+        padding: 1.5rem;
+      }
+
+      @media (min-width: 52rem) {
+        .demo__body {
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+          align-items: start;
+        }
+      }
+
+      .swatch-wrap {
+        display: grid;
+        gap: 0.75rem;
+        justify-items: center;
+      }
+
+      .swatch {
+        width: min(100%, 17rem);
+        aspect-ratio: 4 / 3;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        display: grid;
+        place-items: center;
+        background: var(--bg);
+        overflow: hidden;
+      }
+
+      /* The "produce" is a radial patch that scales with the light gain. */
+      .patch {
+        width: 62%;
+        aspect-ratio: 1;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 34% 30%,
+          var(--patch-hi) 0%,
+          var(--patch-lo) 62%,
+          var(--patch-edge) 100%
+        );
+        filter: brightness(var(--gain));
+        transition: filter 120ms linear;
+      }
+
+      .lamp {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        color: var(--muted-fg);
+      }
+
+      .lamp__bulb {
+        width: 1.75rem;
+        height: 1.75rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--muted);
+        display: grid;
+        place-items: center;
+        flex: none;
+        color: var(--fg);
+      }
+
+      .controls {
+        display: grid;
+        gap: 1.1rem;
+      }
+
+      .control label {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 1rem;
+        font-size: 0.875rem;
+        margin-bottom: 0.4rem;
+      }
+
+      .control label span:last-child {
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        color: var(--muted-fg);
+      }
+
+      input[type="range"] {
+        width: 100%;
+        accent-color: var(--primary);
+        height: 1.5rem;
+      }
+
+      .readouts {
+        display: grid;
+        gap: 0.6rem;
+      }
+
+      .readout {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 0.75rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 0.7rem 0.85rem;
+        background: var(--bg);
+      }
+
+      .readout__name {
+        font-size: 0.8125rem;
+      }
+
+      .readout__note {
+        display: block;
+        font-size: 0.6875rem;
+        color: var(--muted-fg);
+        margin-top: 0.1rem;
+      }
+
+      .readout__val {
+        font-family: var(--mono);
+        font-size: 1.05rem;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .readout--drift .readout__val {
+        color: var(--danger);
+      }
+
+      .readout--steady .readout__val {
+        color: var(--teal);
+      }
+
+      .driftbar {
+        grid-column: 1 / -1;
+        height: 0.3rem;
+        border-radius: 999px;
+        background: var(--muted);
+        overflow: hidden;
+      }
+
+      .driftbar i {
+        display: block;
+        height: 100%;
+        background: var(--danger);
+        border-radius: 999px;
+        transition: width 120ms linear;
+      }
+
+      .driftbar--steady i {
+        background: var(--teal);
+      }
+
+      .demo__foot {
+        border-top: 1px solid var(--border);
+        padding: 0.9rem 1.5rem;
+        font-size: 0.8125rem;
+        color: var(--muted-fg);
+        background: var(--secondary);
+      }
+
+      .demo__foot strong {
+        color: var(--fg);
+      }
+
+      .noscript {
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--danger);
+        border-radius: var(--radius);
+        padding: 0.9rem 1rem;
+        font-size: 0.875rem;
+        color: var(--muted-fg);
+        background: var(--card);
+      }
+
+      /* ------------------------------------------------------------------
+         Math
+         ------------------------------------------------------------------ */
+      .formula {
+        font-family: var(--mono);
+        font-size: 0.875rem;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 0.9rem 1rem;
+        overflow-x: auto;
+        box-shadow: var(--shadow);
+      }
+
+      .formula b {
+        color: var(--teal);
+        font-weight: 600;
+      }
+
+      .math-note {
+        margin-top: 0.6rem;
+        font-size: 0.8125rem;
+        color: var(--muted-fg);
+      }
+
+      /* ------------------------------------------------------------------
+         Result preview
+         ------------------------------------------------------------------ */
+      .result {
+        display: grid;
+        gap: 1.25rem;
+      }
+
+      .result__top {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 1.1rem;
+      }
+
+      .result__grade {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+      }
+
+      .result__grade strong {
+        font-size: 1.5rem;
+        letter-spacing: -0.03em;
+      }
+
+      .result__conf {
+        font-family: var(--mono);
+        font-size: 1.5rem;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .bars {
+        display: grid;
+        gap: 0.7rem;
+      }
+
+      .bar {
+        display: grid;
+        gap: 0.3rem;
+      }
+
+      .bar__top {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        font-family: var(--mono);
+        color: var(--muted-fg);
+      }
+
+      .bar__track {
+        height: 0.5rem;
+        border-radius: 999px;
+        background: var(--muted);
+        overflow: hidden;
+      }
+
+      .bar__fill {
+        height: 100%;
+        border-radius: 999px;
+        background: var(--primary);
+      }
+
+      .bar__fill--alt {
+        background: color-mix(in oklch, var(--muted-fg) 55%, transparent);
+      }
+
+      /* ------------------------------------------------------------------
+         Differentiators
+         ------------------------------------------------------------------ */
+      .diff {
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      @media (min-width: 46rem) {
+        .diff {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      .diff__item {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+        padding: 1.1rem;
+        box-shadow: var(--shadow);
+      }
+
+      .diff__item h3 {
+        font-size: 0.9375rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.4rem;
+      }
+
+      .diff__item h3 svg {
+        width: 1rem;
+        height: 1rem;
+        color: var(--teal);
+        flex: none;
+      }
+
+      .diff__item p {
+        font-size: 0.875rem;
+        color: var(--muted-fg);
+      }
+
+      /* ------------------------------------------------------------------
+         Footer
+         ------------------------------------------------------------------ */
+      footer {
+        border-top: 1px solid var(--border);
+        padding-block: 2.5rem 3.5rem;
+        font-size: 0.8125rem;
+        color: var(--muted-fg);
+      }
+
+      .footer__grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5rem;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+
+      .footer__grid ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 0.3rem;
+      }
+
+      .footer__grid strong {
+        color: var(--fg);
+        display: block;
+        margin-bottom: 0.35rem;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <div class="masthead">
+      <div class="shell masthead__inner">
+        <a class="brand" href="#top">
+          <span class="brand__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+              <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+            </svg>
+          </span>
+          AgriGrade AI
+        </a>
+        <nav aria-label="Sections">
+          <a href="#problem">Problem</a>
+          <a href="#idea">The idea</a>
+          <a href="#demo">Try it</a>
+          <a href="#pipeline">Pipeline</a>
+          <a href="#routing">Routing</a>
+          <a href="#math">The math</a>
+          <a href="#output">Output</a>
+        </nav>
+      </div>
+    </div>
+
+    <main id="main">
+      <!-- ============================================================= -->
+      <div class="shell hero" id="top">
+        <p class="eyebrow">Problem Statement AGR-S05</p>
+        <h1>Grade produce by measuring ratios, not guesses.</h1>
+        <p class="lede">
+          Manual quality grading is subjective and changes with the shift. The
+          automated alternative — average the pixel colours, feed a classifier —
+          breaks under ordinary lighting and confidently mislabels anything
+          unusual. AgriGrade fixes the <em>measurement</em> first, then grades
+          with a Random Forest, and shows its work.
+        </p>
+        <p class="hero__meta">
+          <span class="chip">YOLOv8 segmentation</span>
+          <span class="chip">Class-conditioned features</span>
+          <span class="chip">Random Forest · 100 trees</span>
+          <span class="chip">Explainable output</span>
+          <span class="chip">On-device ready</span>
+        </p>
+      </div>
+
+      <!-- ============================================================= -->
+      <section id="problem">
+        <div class="shell">
+          <div class="section__head">
+            <span class="step">01 — The problem</span>
+            <h2>Three ways produce grading breaks today</h2>
+            <p class="section__sub">
+              None of these are hard modelling problems. They come from measuring
+              the wrong thing.
+            </p>
+          </div>
+
+          <div class="grid grid--3">
+            <div class="card card--fail">
+              <svg class="card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" />
+                <circle cx="12" cy="12" r="4" />
+              </svg>
+              <h3>Light changes the reading</h3>
+              <p>
+                A channel average is a measurement of the room, not the fruit.
+                Move the crate under a different lamp and the same apple returns
+                a different score.
+              </p>
+            </div>
+
+            <div class="card card--fail">
+              <svg class="card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="m9.5 9.5 5 5M14.5 9.5l-5 5" />
+              </svg>
+              <h3>Unusual fruit is flagged as rotten</h3>
+              <p>
+                A generic classifier trained mostly on red apples reads a brown
+                kiwi as a rotten one. The model is not broken — it was never
+                shown what a healthy kiwi looks like.
+              </p>
+            </div>
+
+            <div class="card card--fail">
+              <svg class="card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 3v18h18" />
+                <path d="m7 15 4-5 3 3 5-7" />
+              </svg>
+              <h3>A verdict with no receipt</h3>
+              <p>
+                A buyer who is told "Grade B" with no supporting evidence cannot
+                price against it, and a farmer who is wronged has nothing to
+                appeal with.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <section id="idea">
+        <div class="shell">
+          <div class="section__head">
+            <span class="step">02 — The idea</span>
+            <h2>Change what you measure, not what you model</h2>
+            <p class="section__sub">
+              A deeper network would not fix the first two problems. A different
+              measurement would.
+            </p>
+          </div>
+
+          <div class="grid grid--2">
+            <div class="card card--fail">
+              <h3>Average the channels</h3>
+              <p>
+                <code>mean(R, G, B)</code> is an absolute measurement. Multiply
+                every channel by the light level and the number moves with it.
+                The value encodes the room as much as the fruit.
+              </p>
+            </div>
+            <div class="card card--fix">
+              <h3>Take the ratio of the channels</h3>
+              <p>
+                <code>(R − G) / (R + G)</code> is dimensionless. Scale every
+                channel by the light level and the scale cancels, because it
+                appears in both the numerator and the denominator. The number
+                survives the move.
+              </p>
+            </div>
+          </div>
+
+          <div class="grid grid--2" style="margin-top: 1rem">
+            <div class="card card--fail">
+              <h3>One model for every fruit</h3>
+              <p>
+                The model has to learn ten produce classes and every lighting
+                condition from data alone, and it will still guess when a class
+                falls outside its training set.
+              </p>
+            </div>
+            <div class="card card--fix">
+              <h3>Route the measurement, then predict</h3>
+              <p>
+                Segment the fruit, read its class, and send it down the recipe
+                that class actually needs. The defence against mislabelling is
+                the feature router, not a bigger network.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <section id="demo">
+        <div class="shell">
+          <div class="section__head">
+            <span class="step">03 — See it</span>
+            <h2>Move the light. Watch the two numbers diverge.</h2>
+            <p class="section__sub">
+              A simulated red apple. The naive average tracks the lamp. The band
+              ratio does not.
+            </p>
+          </div>
+
+          <div class="demo">
+            <div class="demo__body">
+              <div class="swatch-wrap">
+                <div class="swatch">
+                  <div
+                    class="patch"
+                    id="patch"
+                    style="
+                      --patch-hi: oklch(0.72 0.17 28);
+                      --patch-lo: oklch(0.5 0.19 25);
+                      --patch-edge: oklch(0.34 0.14 22);
+                      --gain: 1;
+                    "
+                    role="img"
+                    aria-label="A simulated red apple, brightening as the light increases"
+                  ></div>
+                </div>
+                <p class="lamp">
+                  <span class="lamp__bulb" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M9 18h6M10 22h4" />
+                      <path d="M12 2a6 6 0 0 0-3.5 10.9c.5.4.8 1 .8 1.6v.5h5.4v-.5c0-.6.3-1.2.8-1.6A6 6 0 0 0 12 2Z" />
+                    </svg>
+                  </span>
+                  <span id="lampLabel">lamp at 1.00×</span>
+                </p>
+              </div>
+
+              <div class="controls">
+                <div class="control">
+                  <label for="gain">
+                    <span>Brightness</span>
+                    <span id="gainOut">1.00×</span>
+                  </label>
+                  <input
+                    type="range"
+                    id="gain"
+                    min="0.35"
+                    max="1.9"
+                    step="0.01"
+                    value="1"
+                    aria-describedby="demoNote"
+                  />
+                </div>
+
+                <div class="control">
+                  <label for="tint">
+                    <span>Colour cast (warm lamp)</span>
+                    <span id="tintOut">0%</span>
+                  </label>
+                  <input
+                    type="range"
+                    id="tint"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value="0"
+                    aria-describedby="demoNote"
+                  />
+                </div>
+
+                <div class="readouts">
+                  <div class="readout readout--drift">
+                    <div>
+                      <span class="readout__name">Naive channel average</span>
+                      <span class="readout__note">what most pipelines measure</span>
+                    </div>
+                    <span class="readout__val" id="meanOut">0.450</span>
+                    <span class="driftbar"><i id="meanBar" style="width: 0%"></i></span>
+                  </div>
+
+                  <div class="readout readout--steady">
+                    <div>
+                      <span class="readout__name">NDTI band ratio</span>
+                      <span class="readout__note">what AgriGrade measures</span>
+                    </div>
+                    <span class="readout__val" id="ndtiOut">0.431</span>
+                    <span class="driftbar driftbar--steady"><i id="ndtiBar" style="width: 0%"></i></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p class="demo__foot" id="demoNote">
+              <strong>Brightness is free.</strong> The ratio is exactly
+              invariant to it — the gain cancels top and bottom, so the bar
+              never moves. <strong>A colour cast is not free.</strong> A warm
+              lamp lifts red and drops blue unevenly, so NDTI drifts a little.
+              Real deployments lean on the mask, a neutral-ish background and
+              reference markers to keep that drift small.
+            </p>
+          </div>
+
+          <noscript>
+            <p class="noscript" style="margin-top: 1rem">
+              The interactive demo needs JavaScript. The point it makes stands
+              without it: a ratio like
+              <code>(R − G) / (R + G)</code> is unchanged when every channel is
+              scaled by the same factor, whereas a channel average is not.
+            </p>
+          </noscript>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <section id="pipeline">
+        <div class="shell">
+          <div class="section__head">
+            <span class="step">04 — How it works</span>
+            <h2>Four stages, from a phone photo to a priced grade</h2>
+          </div>
+
+          <div class="pipeline">
+            <div class="stage">
+              <span class="stage__n" aria-hidden="true">1</span>
+              <h3>Segment</h3>
+              <p>
+                YOLOv8 segmentation isolates the produce from the background and
+                names its class, so a crate of mixed fruit is handled piece by
+                piece.
+              </p>
+              <em>mask + ProduceClass</em>
+            </div>
+
+            <div class="stage">
+              <span class="stage__n" aria-hidden="true">2</span>
+              <h3>Route</h3>
+              <p>
+                The class maps to a colour family, and the family decides which
+                feature recipe runs. This is the step that stops brown produce
+                being scored as rotten red produce.
+              </p>
+              <em>class → family → recipe</em>
+            </div>
+
+            <div class="stage">
+              <span class="stage__n" aria-hidden="true">3</span>
+              <h3>Measure</h3>
+              <p>
+                Spectral ratios, texture metrics and a coin-scaled physical
+                measurement run only over the masked foreground, so background
+                and camera distance stop contaminating the result.
+              </p>
+              <em>feature vector</em>
+            </div>
+
+            <div class="stage">
+              <span class="stage__n" aria-hidden="true">4</span>
+              <h3>Grade</h3>
+              <p>
+                A 100-tree Random Forest votes, the majority class is the grade,
+                and the mean probability is the confidence. Feature importance
+                comes out with it.
+              </p>
+              <em>grade + confidence + XAI</em>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <section id="routing">
+        <div class="shell">
+          <div class="section__head">
+            <span class="step">05 — The part that matters</span>
+            <h2>One fruit, one recipe</h2>
+            <p class="section__sub">
+              A dark spot means something different on a banana than on a kiwi.
+              The router picks the measurement that family can actually justify.
+            </p>
+          </div>
+
+          <div class="router">
+            <div class="route">
+              <div class="route__head">
+                <strong>Red / Smooth</strong>
+                <span>red_smooth</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Primary</dt>
+                  <dd>NDTI &amp; VARI</dd>
+                </div>
+                <div>
+                  <dt>Secondary</dt>
+                  <dd>a* variance (L*a*b*)</dd>
+                </div>
+                <div>
+                  <dt>Defect signature</dt>
+                  <dd>dark spots drop NDTI below the produce baseline</dd>
+                </div>
+              </dl>
+              <p class="route__produce">Apple · Tomato · Red grape</p>
+            </div>
+
+            <div class="route">
+              <div class="route__head">
+                <strong>Yellow / Green</strong>
+                <span>yellow_green</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Primary</dt>
+                  <dd>YI &amp; VARI</dd>
+                </div>
+                <div>
+                  <dt>Secondary</dt>
+                  <dd>black spot contour ratio</dd>
+                </div>
+                <div>
+                  <dt>Defect signature</dt>
+                  <dd>high YI is ripeness; low VARI is age</dd>
+                </div>
+              </dl>
+              <p class="route__produce">Banana · Mango · Citrus · Papaya</p>
+            </div>
+
+            <div class="route">
+              <div class="route__head">
+                <strong>Brown / Textured</strong>
+                <span>brown_textured</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Primary</dt>
+                  <dd>ExB (excess blue)</dd>
+                </div>
+                <div>
+                  <dt>Secondary</dt>
+                  <dd>GLCM homogeneity &amp; L* variance</dd>
+                </div>
+                <div>
+                  <dt>Defect signature</dt>
+                  <dd>soft rot shows high L* variance; mold spikes ExB</dd>
+                </div>
+              </dl>
+              <p class="route__produce">Kiwi · Chikoo · Brown pear</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <section id="math">
+        <div class="shell">
+          <div class="section__head">
+            <span class="step">06 — The measurement</span>
+            <h2>Four indices, one idea</h2>
+            <p class="section__sub">
+              Every one is a ratio of normalised channels, so the light level
+              cancels. <code>ε</code> keeps a black pixel from dividing by zero.
+            </p>
+          </div>
+
+          <div class="prose" style="display: grid; gap: 0.75rem">
+            <div>
+              <p class="formula">VARI = <b>(G − R) / (G + R − B + ε)</b></p>
+              <p class="math-note">
+                Chlorophyll density and photosynthetic activity — how green or
+                how alive the surface still is.
+              </p>
+            </div>
+
+            <div>
+              <p class="formula">NDTI = <b>(R − G) / (R + G + ε)</b></p>
+              <p class="math-note">
+                Anthocyanin and lycopene during ripening. This is the index the
+                demo above moves under a lamp.
+              </p>
+            </div>
+
+            <div>
+              <p class="formula">YI = <b>(R + G − 2B) / (R + G + B + ε)</b></p>
+              <p class="math-note">
+                Carotenoid progression in bananas, mangoes and papayas — how far
+                along the ripening curve a fruit is.
+              </p>
+            </div>
+
+            <div>
+              <p class="formula">ExB = <b>2B − R − G</b></p>
+              <p class="math-note">
+                Excess blue. Grey and white fungal growth on dark or brown skin
+                pushes this up while ripe pigment pushes it down.
+              </p>
+            </div>
+          </div>
+
+          <div style="margin-top: 2rem">
+            <h3 style="font-size: 1rem; margin-bottom: 0.75rem">
+              Size that does not depend on how far away the phone was
+            </h3>
+            <div class="prose" style="display: grid; gap: 0.75rem">
+              <p class="formula">
+                scale (mm/px) = <b>known reference diameter ÷ measured reference
+                diameter</b>
+              </p>
+              <p class="formula">
+                true area (cm²) = <b>pixel area × scale² × 10⁻²</b>
+              </p>
+              <p class="math-note">
+                Drop a coin or a 40 mm ArUco tag in the frame and the produce's
+                real area and diameter follow. Without one you still get a
+                grade — just no physical size, and the UI says so rather than
+                inventing a number.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <section id="output">
+        <div class="shell">
+          <div class="section__head">
+            <span class="step">07 — The output</span>
+            <h2>A verdict you can argue with</h2>
+            <p class="section__sub">
+              Grade and confidence on top, the reasoning underneath. A buyer can
+              price against it; a farmer can appeal it.
+            </p>
+          </div>
+
+          <div class="card result">
+            <div class="result__top">
+              <div class="result__grade">
+                <strong>Grade A</strong>
+                <span style="color: var(--muted-fg); font-size: 0.875rem">
+                  apple · red_smooth
+                </span>
+              </div>
+              <span class="result__conf">92.4%</span>
+            </div>
+
+            <div>
+              <p
+                style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-fg); margin-bottom: 0.75rem"
+              >
+                Why this grade — feature importance
+              </p>
+              <div class="bars">
+                <div class="bar">
+                  <div class="bar__top"><span>NDTI mean</span><span>0.610</span></div>
+                  <div class="bar__track"><div class="bar__fill" style="width: 100%"></div></div>
+                </div>
+                <div class="bar">
+                  <div class="bar__top"><span>VARI mean</span><span>−0.140</span></div>
+                  <div class="bar__track"><div class="bar__fill" style="width: 77%"></div></div>
+                </div>
+                <div class="bar">
+                  <div class="bar__top"><span>NDTI std (spots)</span><span>0.043</span></div>
+                  <div class="bar__track"><div class="bar__fill" style="width: 58%"></div></div>
+                </div>
+                <div class="bar">
+                  <div class="bar__top"><span>a* variance</span><span>62.400</span></div>
+                  <div class="bar__track"><div class="bar__fill bar__fill--alt" style="width: 39%"></div></div>
+                </div>
+                <div class="bar">
+                  <div class="bar__top"><span>true area</span><span>41.7 cm²</span></div>
+                  <div class="bar__track"><div class="bar__fill bar__fill--alt" style="width: 29%"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid--2" style="margin-top: 1rem">
+            <div class="card">
+              <h3>Confidence is the mean vote</h3>
+              <p>
+                Not a softmax on one output — the average of 100 trees'
+                probabilities for the winning class. When the forest splits, the
+                score drops and the UI says the grade is provisional rather than
+                showing a confident-looking bar.
+              </p>
+            </div>
+            <div class="card">
+              <h3>Low confidence is allowed to say so</h3>
+              <p>
+                A number you cannot defend is worse than no number. Below a
+                threshold the result is flagged as provisional, so a marginal
+                batch gets a second capture instead of a wrong price.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <section id="why">
+        <div class="shell">
+          <div class="section__head">
+            <span class="step">08 — Why this works</span>
+            <h2>What the design buys us</h2>
+          </div>
+
+          <div class="diff">
+            <div class="diff__item">
+              <h3>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 2v4M12 18v4M4.9 4.9l2.9 2.9M16.2 16.2l2.9 2.9M2 12h4M18 12h4M4.9 19.1l2.9-2.9M16.2 7.8l2.9-2.9" />
+                </svg>
+                Illumination-invariant by construction
+              </h3>
+              <p>
+                Because the indices are ratios, no darkroom, no ring light and
+                no controlled shooting booth. It grades in the packing shed it
+                was given.
+              </p>
+            </div>
+
+            <div class="diff__item">
+              <h3>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M4 7h16M4 12h10M4 17h6" />
+                </svg>
+                Class conditioning kills the brown-fruit bug
+              </h3>
+              <p>
+                Kiwi, chikoo and brown pear get an ExB-and-texture recipe
+                instead of a red-fruit one, so being brown is no longer read as
+                being rotten.
+              </p>
+            </div>
+
+            <div class="diff__item">
+              <h3>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect width="14" height="20" x="5" y="2" rx="2" />
+                  <path d="M12 18h.01" />
+                </svg>
+                Runs where the produce is
+              </h3>
+              <p>
+                Features via OpenCV, inference via TFLite or ONNX, frames kept
+                on the phone by default. No cloud round trip, no per-batch
+                latency, and nothing retained server-side unless submitted.
+              </p>
+            </div>
+
+            <div class="diff__item">
+              <h3>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                Transparent by default
+              </h3>
+              <p>
+                Every grade ships with the features that drove it. A grader who
+                disagrees with the result can see which measurement to argue
+                about.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="shell footer__grid">
+        <div>
+          <strong>Read next</strong>
+          <p style="max-width: 34ch">
+            The full specification, the formulas and the reference implementation
+            live in the repository README.
+          </p>
+        </div>
+        <div>
+          <strong>In the repo</strong>
+          <ul>
+            <li><a href="ARCHITECTURE.md">docs/ARCHITECTURE.md</a> — branch map and contracts</li>
+            <li><code>src/agrigrade/</code> — Python package</li>
+            <li><code>frontend/</code> — capture and result client</li>
+          </ul>
+        </div>
+        <div>
+          <strong>Honest status</strong>
+          <p style="max-width: 32ch">
+            Specification and architecture are complete. The feature, model and
+            web workstreams are implemented in parallel branches; model
+            artifacts are regenerated, not committed.
+          </p>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        var gain = document.getElementById("gain");
+        var tint = document.getElementById("tint");
+        if (!gain || !tint) return;
+
+        var patch = document.getElementById("patch");
+        var lampLabel = document.getElementById("lampLabel");
+        var gainOut = document.getElementById("gainOut");
+        var tintOut = document.getElementById("tintOut");
+        var meanOut = document.getElementById("meanOut");
+        var ndtiOut = document.getElementById("ndtiOut");
+        var meanBar = document.getElementById("meanBar");
+        var ndtiBar = document.getElementById("ndtiBar");
+
+        // Linear-light base of the simulated apple, 0..1.
+        var BASE = { r: 0.78, g: 0.31, b: 0.26 };
+
+        function update() {
+          var g = parseFloat(gain.value);
+          var t = parseFloat(tint.value);
+
+          // A warmer lamp lifts red and drops blue; brightness scales
+          // everything uniformly, which is the case a ratio cancels.
+          var r = BASE.r * g * (1 + 0.15 * t);
+          var gg = BASE.g * g;
+          var b = BASE.b * g * (1 - 0.2 * t);
+
+          var mean = (r + gg + b) / 3;
+          var ndti = (r - gg) / (r + gg);
+
+          // Reference range the naive average is judged against: the span it
+          // covers as brightness sweeps the slider's full travel.
+          var lo = 0.35, hi = 1.9;
+          var meanLo = (BASE.r * lo + BASE.g * lo + BASE.b * lo) / 3;
+          var meanHi = (BASE.r * hi + BASE.g * hi + BASE.b * hi) / 3;
+          var meanSpan = (mean - meanLo) / (meanHi - meanLo);
+
+          // NDTI only moves with the colour cast, so its bar is scaled to that
+          // much smaller range and labelled accordingly.
+          var ndtiSpan = Math.abs(ndti - (BASE.r - BASE.g) / (BASE.r + BASE.g)) / 0.2;
+
+          patch.style.setProperty("--gain", g.toFixed(3));
+          lampLabel.textContent = "lamp at " + g.toFixed(2) + "×";
+          gainOut.textContent = g.toFixed(2) + "×";
+          tintOut.textContent = Math.round(t * 100) + "%";
+          meanOut.textContent = mean.toFixed(3);
+          ndtiOut.textContent = ndti.toFixed(3);
+          meanBar.style.width = (Math.min(100, Math.max(0, meanSpan * 100))).toFixed(1) + "%";
+          ndtiBar.style.width = (Math.min(100, Math.max(0, ndtiSpan * 100))).toFixed(1) + "%";
+        }
+
+        gain.addEventListener("input", update);
+        tint.addEventListener("input", update);
+        update();
+      })();
+    </script>
+  </body>
+</html>
