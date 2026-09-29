@@ -172,6 +172,27 @@ class QualityGrader:
         grades = [GRADE_ORDER[int(i)] for i in probabilities.argmax(axis=1)]
         return grades, probabilities
 
+    def tree_votes(
+        self,
+        X: np.ndarray | Sequence[Mapping[str, Any]] | Sequence[Sequence[float]],  # noqa: N803
+    ) -> np.ndarray:
+        """Per-tree hard class indices, shape ``(n_trees, n_samples)``.
+
+        Indices are over ``GRADE_ORDER``, not the estimator's own ``classes_``.
+        Exposed so the soft-voting arithmetic in section 4A of the spec can be
+        reproduced and checked against :meth:`predict_proba`, rather than
+        assumed to be the same thing.
+        """
+        matrix = self._as_matrix(X)
+        # Each tree predicts integer codes into the forest's shared classes_,
+        # not grade names, so a code is translated twice: code -> the label the
+        # forest was fitted with, then label -> GRADE_ORDER position.
+        lookup = [GRADE_INDEX[QualityGrade(str(name))] for name in self._estimator.classes_]
+        votes = np.empty((self.n_estimators, matrix.shape[0]), dtype=np.int64)
+        for position, tree in enumerate(self._estimator.estimators_):
+            votes[position] = [lookup[int(code)] for code in tree.predict(matrix)]
+        return votes
+
     # --- properties -----------------------------------------------------
 
     @property

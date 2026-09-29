@@ -27,10 +27,10 @@ stage is replaced by an ONNX or TFLite graph.
 from __future__ import annotations
 
 __all__ = [
-    "__version__",
     "GRADE_ORDER",
     "GradePrediction",
     "QualityGrader",
+    "__version__",
     "load_grader",
 ]
 
