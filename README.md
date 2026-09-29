@@ -233,6 +233,26 @@ def classify_produce(feature_vector, trained_rf_model):
 
 ```
 
+## Repository Layout
+
+This spec is implemented across three parallel branches — `feature-extraction`,
+`model` and `frontend` — cut from `main`, which owns the shared contracts in
+`src/agrigrade/core/`. No branch imports another branch's internals.
+
+```
+src/agrigrade/core/          shared contracts (produce, family, grade vocabularies)
+src/agrigrade/features/      spectral, texture, geometry extraction   -> feature-extraction
+src/agrigrade/model/         Random Forest, confidence, XAI           -> model
+src/agrigrade/segmentation/  YOLOv8-seg adapter                       -> main
+src/agrigrade/api/           FastAPI surface                          -> main
+frontend/                    React + TS + Vite client                 -> frontend
+docs/ARCHITECTURE.md         branch map, boundaries, data flow
+CONTRIBUTING.md              ownership table and PR rules
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full map and
+[CONTRIBUTING.md](CONTRIBUTING.md) for the branch workflow.
+
 ## 5. Key Innovations & Hackathon Differentiation
 
 1. **Illumination-Invariant Spectral Math:** Operates reliably under varying room lights, eliminating the need for expensive darkroom boxes or external ring lights.
